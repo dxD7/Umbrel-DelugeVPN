@@ -38,7 +38,7 @@ is_configured() {
 }
 
 while true; do
-  unset VPN_USER VPN_PASS SETUP_COMPLETE
+  unset VPN_USER VPN_PASS SETUP_COMPLETE VPN_REMOTE_SERVER
   load_env
   if is_configured; then
     break
@@ -46,6 +46,9 @@ while true; do
   echo "[dxd7] VPN not configured yet - starting setup page on port 8112"
   python3 "$SETUP_PY" || sleep 2
 done
+
+# An empty server setting means "use binhex's default", so it must be unset.
+[ -n "$VPN_REMOTE_SERVER" ] || unset VPN_REMOTE_SERVER
 
 # The VPN (and its kill switch) can never be switched off from vpn.env.
 export VPN_ENABLED=yes

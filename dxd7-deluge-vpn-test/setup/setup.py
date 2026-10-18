@@ -6,11 +6,13 @@ vpn.env, then exits so the wrapper can start Deluge on the same port.
 Only runs while VPN credentials are missing.
 """
 import html
+import json
 import os
 import re
 import sys
 import tempfile
 import threading
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
@@ -34,11 +36,79 @@ DEFAULTS = {
     "ENABLE_PRIVOXY": "no",
     "LAN_NETWORK": "192.168.1.0/24",
     "NAME_SERVERS": "84.200.69.80,37.235.1.174,1.1.1.1",
+    "VPN_REMOTE_SERVER": "",
 }
+
+# Fallback suggestions for the PIA server field, used if the live list from PIA
+# can't be loaded. Hostnames come from the port-forwarding list in binhex's log.
+# Free text is always accepted.
+SERVER_SUGGESTIONS = [
+    ("ca-montreal.privacy.network", "Canada, Montreal"),
+    ("ca-vancouver.privacy.network", "Canada, Vancouver"),
+    ("ca-toronto.pvt.site", "Canada, Toronto"),
+    ("nl-amsterdam.privacy.network", "Netherlands, Amsterdam (default)"),
+    ("uk-london.pvt.site", "UK, London"),
+    ("de-frankfurt.pvt.site", "Germany, Frankfurt"),
+    ("france.pvt.site", "France"),
+    ("switzerland.pvt.site", "Switzerland"),
+    ("se-stockholm.pvt.site", "Sweden, Stockholm"),
+    ("es-madrid.pvt.site", "Spain, Madrid"),
+    ("au-sydney.pvt.site", "Australia, Sydney"),
+    ("jp-tokyo.pvt.site", "Japan, Tokyo"),
+    ("singapore.pvt.site", "Singapore"),
+]
+# PIA's public server list (JSON on the first line, a signature after it).
+SERVERLIST_URL = os.environ.get(
+    "DXD7_SERVERLIST_URL", "https://serverlist.piaservers.net/vpninfo/servers/v6")
+LIVE = {"servers": None}  # filled by a background thread; None = not (yet) loaded
+SERVER_RE = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,98}[a-z0-9])?$")
+
+SERVER_SCRIPT = """<script>
+(function () {
+  var prov = document.getElementById('prov');
+  var client = document.getElementById('client');
+  var row = document.getElementById('serverrow');
+  function sync() {
+    row.style.display = (prov.value === 'pia' && client.value === 'wireguard') ? '' : 'none';
+  }
+  prov.addEventListener('change', sync);
+  client.addEventListener('change', sync);
+  sync();
+})();
+</script>"""
 
 IP = r"\d{1,3}(?:\.\d{1,3}){3}"
 LAN_RE = re.compile(rf"^{IP}/\d{{1,2}}(?:,{IP}/\d{{1,2}})*$")
 DNS_RE = re.compile(rf"^{IP}(?:,{IP})*$")
+
+
+def fetch_live_servers():
+    """Load PIA's port-forwarding locations. Never raises; on any problem the
+    built-in suggestions stay in use."""
+    try:
+        req = urllib.request.Request(
+            SERVERLIST_URL, headers={"User-Agent": "dxd7-deluge-vpn-setup"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            raw = resp.read(4_000_000)
+        data = json.loads(raw.split(b"\n", 1)[0].decode("utf-8", "replace"))
+        seen, servers = set(), []
+        for region in data.get("regions", []):
+            host = str(region.get("dns", "")).strip().lower()
+            if region.get("port_forward") is not True or host in seen:
+                continue
+            if not SERVER_RE.match(host):
+                continue
+            seen.add(host)
+            label = str(region.get("name", host))[:60]
+            if region.get("geo"):
+                label += " (virtual location)"
+            servers.append((host, label))
+        servers.sort(key=lambda item: item[1].lower())
+        if len(servers) >= 5:
+            LIVE["servers"] = servers
+            sys.stderr.write(f"[dxd7-setup] loaded {len(servers)} PIA locations\n")
+    except Exception as exc:  # noqa: BLE001 - fallback list is fine
+        sys.stderr.write(f"[dxd7-setup] using built-in server list ({exc.__class__.__name__})\n")
 
 
 def read_existing():
@@ -69,6 +139,15 @@ def render_form(values, error=""):
         )
 
     err = f'<p class="err">{html.escape(error)}</p>' if error else ""
+    live = LIVE["servers"]
+    suggestions = "".join(
+        f'<option value="{html.escape(host)}" label="{html.escape(label)}">'
+        for host, label in (live or SERVER_SUGGESTIONS)
+    )
+    server_note = (
+        "Locations loaded from PIA." if live
+        else "Showing common locations; you can type any PIA hostname."
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -98,6 +177,12 @@ summary {{ cursor:pointer; color:var(--muted); font-size:.9rem; }}
 <select id="prov" name="VPN_PROV">{options(PROVIDERS, values["VPN_PROV"])}</select>
 <label for="client">Protocol</label>
 <select id="client" name="VPN_CLIENT">{options(CLIENTS, values["VPN_CLIENT"])}</select>
+<div id="serverrow">
+<label for="srv">Server location (optional)</label>
+<input id="srv" name="VPN_REMOTE_SERVER" list="servers" value="{html.escape(values["VPN_REMOTE_SERVER"])}" placeholder="e.g. ca-montreal.privacy.network" autocomplete="off" autocapitalize="off" spellcheck="false">
+<datalist id="servers">{suggestions}</datalist>
+<small>PIA with WireGuard only. Leave blank for the default (Amsterdam). {server_note} It must support port forwarding.</small>
+</div>
 <label for="user">VPN username</label>
 <input id="user" name="VPN_USER" autocomplete="off" autocapitalize="off" spellcheck="false">
 <label for="pass">VPN password</label>
@@ -110,7 +195,7 @@ summary {{ cursor:pointer; color:var(--muted); font-size:.9rem; }}
 <input id="dns" name="NAME_SERVERS" value="{html.escape(values["NAME_SERVERS"])}">
 </details>
 <button type="submit">Save and start Deluge</button>
-</form></div></main></body></html>"""
+</form></div></main>{SERVER_SCRIPT}</body></html>"""
 
 
 def render_done():
@@ -164,6 +249,7 @@ def validate(form):
     prov, client = get("VPN_PROV"), get("VPN_CLIENT")
     user, pw = get("VPN_USER"), form.get("VPN_PASS", [""])[0]
     lan, dns = get("LAN_NETWORK").strip(), get("NAME_SERVERS").strip()
+    server = get("VPN_REMOTE_SERVER").strip().lower()
 
     if prov not in PROVIDERS:
         return None, "Please choose a provider."
@@ -178,8 +264,14 @@ def validate(form):
         return None, "Home network must look like 192.168.1.0/24."
     if not DNS_RE.match(dns):
         return None, "DNS servers must be IP addresses separated by commas."
+    if prov == "pia" and client == "wireguard":
+        if server and not SERVER_RE.match(server):
+            return None, "Server location must be a hostname like ca-montreal.privacy.network."
+    else:
+        server = ""  # only PIA + WireGuard supports choosing a server here
     return {"VPN_PROV": prov, "VPN_CLIENT": client, "VPN_USER": user,
-            "VPN_PASS": pw, "LAN_NETWORK": lan, "NAME_SERVERS": dns}, ""
+            "VPN_PASS": pw, "LAN_NETWORK": lan, "NAME_SERVERS": dns,
+            "VPN_REMOTE_SERVER": server}, ""
 
 
 def write_env(new):
@@ -193,6 +285,7 @@ def write_env(new):
         "ENABLE_PRIVOXY": existing["ENABLE_PRIVOXY"],
         "LAN_NETWORK": new["LAN_NETWORK"],
         "NAME_SERVERS": new["NAME_SERVERS"],
+        "VPN_REMOTE_SERVER": new["VPN_REMOTE_SERVER"],
         "SETUP_COMPLETE": "yes",
     }
     lines = [
@@ -200,7 +293,8 @@ def write_env(new):
         "# To change them, edit this file and restart the app.",
         "# One pair of outer quotes around a value is allowed; $ is taken literally.",
         "",
-    ] + [f'{k}="{v}"' for k, v in values.items()] + [""]
+    ] + [f'{k}="{v}"' for k, v in values.items()
+         if not (k == "VPN_REMOTE_SERVER" and not v)] + [""]
     directory = os.path.dirname(ENV_FILE) or "."
     fd, tmp = tempfile.mkstemp(dir=directory, prefix=".vpn.env.")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -255,6 +349,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    threading.Thread(target=fetch_live_servers, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.daemon_threads = True
     try:
