@@ -315,6 +315,9 @@ def write_env(new):
         "# DelugeVPN settings - written by the setup page.",
         "# To change them, edit this file and restart the app.",
         "# One pair of outer quotes around a value is allowed; $ is taken literally.",
+        "# PIA + WireGuard: to change server, add a line such as",
+        '#   VPN_REMOTE_SERVER="ca-montreal.privacy.network"',
+        "# and restart the app.",
         "",
     ] + [f'{k}="{v}"' for k, v in values.items()
          if not (k == "VPN_REMOTE_SERVER" and not v)] + [""]

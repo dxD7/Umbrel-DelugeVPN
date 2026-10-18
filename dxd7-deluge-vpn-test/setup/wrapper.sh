@@ -7,6 +7,7 @@
 ENV_FILE="${DXD7_ENV_FILE:-/config/vpn.env}"
 SETUP_PY="${DXD7_SETUP_PY:-/setup/setup.py}"
 INIT_SH="${DXD7_INIT_SH:-init.sh}"
+WG_CONF="${DXD7_WG_CONF:-/config/wireguard/wg0.conf}"
 
 # Reads KEY=VALUE lines literally (no shell evaluation, no $ expansion).
 # One pair of matching outer quotes around a value is removed.
@@ -67,6 +68,27 @@ patch_binhex() {
   fi
 }
 
+# After the first run binhex reuses the Endpoint line in wg0.conf and ignores
+# VPN_REMOTE_SERVER, so a later change in vpn.env would have no effect.
+# Keep the Endpoint hostname in sync (the port is left alone).
+sync_endpoint() {
+  [ -n "$VPN_REMOTE_SERVER" ] || return 0
+  [ "$VPN_PROV" = "pia" ] && [ "$VPN_CLIENT" = "wireguard" ] || return 0
+  [ -f "$WG_CONF" ] || return 0
+  if ! [[ "$VPN_REMOTE_SERVER" =~ ^[a-z0-9]([a-z0-9.-]{0,98}[a-z0-9])?$ ]]; then
+    echo "[dxd7] VPN_REMOTE_SERVER is not a valid hostname - leaving wg0.conf alone"
+    return 0
+  fi
+  local current port
+  current="$(sed -n 's/^Endpoint[[:space:]]*=[[:space:]]*\([^:[:space:]]*\).*/\1/p' "$WG_CONF" | head -n1)"
+  [ -n "$current" ] || return 0
+  if [ "$current" != "$VPN_REMOTE_SERVER" ]; then
+    port="$(sed -n 's/^Endpoint[[:space:]]*=[[:space:]]*[^:[:space:]]*:\([0-9]*\).*/\1/p' "$WG_CONF" | head -n1)"
+    sed -i "s|^Endpoint[[:space:]]*=.*|Endpoint = ${VPN_REMOTE_SERVER}:${port:-1337}|" "$WG_CONF"
+    echo "[dxd7] changed wg0.conf endpoint from $current to $VPN_REMOTE_SERVER"
+  fi
+}
+
 while true; do
   unset VPN_USER VPN_PASS SETUP_COMPLETE VPN_REMOTE_SERVER
   load_env
@@ -84,6 +106,7 @@ done
 export VPN_ENABLED=yes
 
 patch_binhex
+sync_endpoint
 echo "[dxd7] provider=${VPN_PROV:-?} client=${VPN_CLIENT:-?} server=${VPN_REMOTE_SERVER:-default}"
 echo "[dxd7] VPN settings found - starting binhex"
 exec /bin/bash init.sh
