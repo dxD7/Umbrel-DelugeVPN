@@ -35,7 +35,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
     # User-editable settings: Apps/dxd7-deluge-vpn/data/vpn.env (Umbrel Files app)
     env_file:
-      - ./data/vpn.env
+      - ${APP_DATA_DIR}/data/vpn.env
     # Fixed settings. VPN_ENABLED is deliberately NOT user-editable so the
     # app can never silently run without the VPN and kill switch.
     environment:
