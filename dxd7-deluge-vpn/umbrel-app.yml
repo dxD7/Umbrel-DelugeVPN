@@ -19,8 +19,7 @@ description: >-
   in Deluge's preferences after your first login.
 
 
-  If you installed the older "Deluge PIA" app, uninstall it first (they use
-  the same resources). This is an unofficial package and is not affiliated with
+  This is an unofficial package and is not affiliated with
   binhex or any VPN provider.
 developer: binhex
 website: https://github.com/binhex/arch-delugevpn
