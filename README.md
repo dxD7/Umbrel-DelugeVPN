@@ -72,7 +72,6 @@ If those folders don't exist yet, start and stop the app once to create them. Se
 - **No extra ports opened:** the Deluge web UI is reachable through Umbrel as usual, but the other ports (Privoxy 8118, Deluge daemon 58846, torrent traffic) are not opened on your network. Other Umbrel apps can still reach Deluge over Umbrel's internal Docker network. If you need direct access to Privoxy or the daemon, uncomment the `ports` section in `docker-compose.yml`.
 - **Privileged container:** binhex documents that WireGuard needs privileged mode plus a sysctl, so the container runs privileged. If you only use OpenVPN you can try `cap_add: NET_ADMIN` instead (see comments in `docker-compose.yml`; untested).
 - **Plain-text credentials:** your VPN login is stored in `vpn.env` on your Umbrel. Don't share that file.
-- **Verify the tunnel:** from a shell inside the container, `curl ifconfig.me` should print your VPN's IP, not your home IP.
 
 </details>
 
