@@ -68,11 +68,15 @@ SERVER_SCRIPT = """<script>
   var prov = document.getElementById('prov');
   var client = document.getElementById('client');
   var row = document.getElementById('serverrow');
+  var pick = document.getElementById('srvpick');
+  var custom = document.getElementById('srvcustom');
   function sync() {
     row.style.display = (prov.value === 'pia' && client.value === 'wireguard') ? '' : 'none';
+    custom.style.display = (pick.value === '__custom__') ? '' : 'none';
   }
   prov.addEventListener('change', sync);
   client.addEventListener('change', sync);
+  pick.addEventListener('change', sync);
   sync();
 })();
 </script>"""
@@ -140,13 +144,30 @@ def render_form(values, error=""):
 
     err = f'<p class="err">{html.escape(error)}</p>' if error else ""
     live = LIVE["servers"]
-    suggestions = "".join(
-        f'<option value="{html.escape(host)}" label="{html.escape(label)}">'
-        for host, label in (live or SERVER_SUGGESTIONS)
+    current = values["VPN_REMOTE_SERVER"]
+    known = {host for host, _ in SERVER_SUGGESTIONS}
+    if live:
+        known |= {host for host, _ in live}
+    custom_selected = bool(current) and current not in known
+
+    def opt(host, label):
+        sel = " selected" if host == current and not custom_selected else ""
+        return f'<option value="{html.escape(host)}"{sel}>{html.escape(label)}</option>'
+
+    server_options = f'<option value=""{"" if current else " selected"}>Default (Amsterdam)</option>'
+    server_options += '<optgroup label="Popular">' + "".join(
+        opt(h, l) for h, l in SERVER_SUGGESTIONS) + "</optgroup>"
+    if live:
+        server_options += '<optgroup label="All locations">' + "".join(
+            opt(h, l) for h, l in live) + "</optgroup>"
+    server_options += (
+        f'<option value="__custom__"{" selected" if custom_selected else ""}>'
+        "Other (type a hostname)...</option>"
     )
+    custom_value = html.escape(current) if custom_selected else ""
     server_note = (
         "Locations loaded from PIA." if live
-        else "Showing common locations; you can type any PIA hostname."
+        else "Showing common locations; choose Other to type any PIA hostname."
     )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -178,10 +199,10 @@ summary {{ cursor:pointer; color:var(--muted); font-size:.9rem; }}
 <label for="client">Protocol</label>
 <select id="client" name="VPN_CLIENT">{options(CLIENTS, values["VPN_CLIENT"])}</select>
 <div id="serverrow">
-<label for="srv">Server location (optional)</label>
-<input id="srv" name="VPN_REMOTE_SERVER" list="servers" value="{html.escape(values["VPN_REMOTE_SERVER"])}" placeholder="e.g. ca-montreal.privacy.network" autocomplete="off" autocapitalize="off" spellcheck="false">
-<datalist id="servers">{suggestions}</datalist>
-<small>PIA with WireGuard only. Leave blank for the default (Amsterdam). {server_note} It must support port forwarding.</small>
+<label for="srvpick">Server location (optional)</label>
+<select id="srvpick" name="VPN_REMOTE_SERVER">{server_options}</select>
+<input id="srvcustom" name="VPN_REMOTE_SERVER_CUSTOM" value="{custom_value}" placeholder="e.g. ca-montreal.privacy.network" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:.5rem">
+<small>PIA with WireGuard only. {server_note} It must support port forwarding.</small>
 </div>
 <label for="user">VPN username</label>
 <input id="user" name="VPN_USER" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -250,6 +271,8 @@ def validate(form):
     user, pw = get("VPN_USER"), form.get("VPN_PASS", [""])[0]
     lan, dns = get("LAN_NETWORK").strip(), get("NAME_SERVERS").strip()
     server = get("VPN_REMOTE_SERVER").strip().lower()
+    if server == "__custom__":
+        server = get("VPN_REMOTE_SERVER_CUSTOM").strip().lower()
 
     if prov not in PROVIDERS:
         return None, "Please choose a provider."
