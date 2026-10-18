@@ -1,0 +1,38 @@
+manifestVersion: 1
+id: dxd7-deluge-vpn
+category: networking
+name: DelugeVPN
+version: "2.0.0"
+tagline: Deluge torrent client with a built-in VPN and kill switch
+icon: https://raw.githubusercontent.com/dxD7/Umbrel-DelugeVPN/main/dxd7-deluge-vpn/icon.png
+description: >-
+  Deluge torrent client that runs entirely inside a VPN tunnel with a kill
+  switch, packaged from the binhex/arch-delugevpn image. Preconfigured for
+  Private Internet Access (WireGuard) and switchable to other providers that
+  binhex supports (AirVPN, ProtonVPN, or your own config files).
+
+
+  SETUP REQUIRED - the app will not connect until you add your VPN login.
+  In the Umbrel Files app open Apps/dxd7-deluge-vpn/data/vpn.env, choose your
+  provider and protocol, enter your username and password, save, then restart
+  the app. The Deluge web UI password is "deluge" by default - please change it
+  in Deluge's preferences after your first login.
+
+
+  If you installed the older "Deluge PIA" app, uninstall it first (they use
+  the same resources). This is an unofficial package and is not affiliated with
+  binhex or any VPN provider.
+developer: binhex
+website: https://github.com/binhex/arch-delugevpn
+dependencies: []
+repo: https://github.com/dxD7/Umbrel-DelugeVPN
+support: https://github.com/dxD7/Umbrel-DelugeVPN/issues
+port: 8112
+gallery: []
+path: ""
+defaultPassword: "deluge"
+releaseNotes: >-
+  First release of DelugeVPN, replacing the old Deluge PIA app. VPN settings
+  now live in data/vpn.env. No extra ports are published to your network by default.
+submitter: dxD7
+submission: https://github.com/dxD7/Umbrel-DelugeVPN
