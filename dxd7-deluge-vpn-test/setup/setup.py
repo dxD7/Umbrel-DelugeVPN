@@ -121,20 +121,39 @@ def render_done():
 <style>
 :root { color-scheme: light dark; }
 body { font:16px/1.5 system-ui,sans-serif; display:flex; min-height:100vh; align-items:center; justify-content:center; margin:0; padding:1rem; text-align:center; }
-p { color:#7a8392; max-width:26rem; }
-</style></head><body><div>
+div.box { max-width:26rem; }
+p { color:#7a8392; margin:.5rem 0; }
+p.small { font-size:.85rem; }
+#timer { font-variant-numeric:tabular-nums; }
+.spin { width:2rem; height:2rem; margin:1rem auto; border:3px solid #7a839255; border-top-color:#7a8392; border-radius:50%; animation:s 1s linear infinite; }
+@keyframes s { to { transform:rotate(360deg); } }
+</style></head><body><div class="box">
 <h1>Saved</h1>
-<p>Connecting to your VPN and starting Deluge. This page opens Deluge automatically when it is ready, which can take a minute or two.</p>
+<div class="spin"></div>
+<p>Connecting to your VPN and starting Deluge. This usually takes 1 to 2 minutes.</p>
+<p id="timer">0:00 elapsed</p>
+<p class="small">This page opens Deluge automatically when it is ready. If you see an Umbrel error page in the meantime, Deluge just isn't up yet: wait a moment and refresh.</p>
 </div>
 <script>
-(async function poll() {
+const started = Date.now();
+const timer = document.getElementById('timer');
+setInterval(function () {
+  const s = Math.floor((Date.now() - started) / 1000);
+  timer.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + ' elapsed';
+}, 1000);
+async function poll() {
   try {
     const r = await fetch('/', {cache: 'no-store'});
-    const t = await r.text();
-    if (!t.includes('dxd7-setup')) { location.replace('/'); return; }
+    if (r.status === 200) {
+      const t = await r.text();
+      const isSetup = t.includes('dxd7-setup');
+      const isProxyError = /Oops, there was an error|error connecting to/i.test(t);
+      if (!isSetup && !isProxyError) { location.replace('/'); return; }
+    }
   } catch (e) {}
   setTimeout(poll, 3000);
-})();
+}
+poll();
 </script></body></html>"""
 
 
