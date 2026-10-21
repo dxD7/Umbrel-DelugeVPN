@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.1.1
+- Fix: on a fresh install the download folders didn't exist, so Deluge's status bar showed "Error" for free space. The app now creates `/data/incomplete` and `/data/completed` (and any custom folder under `/data` that Deluge is set to use) with the right ownership on every start.
+
 ## 2.1.0
 - First-run setup page: open the app after installing and enter your VPN details. Deluge starts automatically, with no file editing or restart.
 - PIA + WireGuard: choose a server location in the setup form (live list from PIA, with a built-in fallback), or change it later in `vpn.env`.

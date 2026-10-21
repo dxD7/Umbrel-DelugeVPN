@@ -8,6 +8,8 @@ ENV_FILE="${DXD7_ENV_FILE:-/config/vpn.env}"
 SETUP_PY="${DXD7_SETUP_PY:-/setup/setup.py}"
 INIT_SH="${DXD7_INIT_SH:-init.sh}"
 WG_CONF="${DXD7_WG_CONF:-/config/wireguard/wg0.conf}"
+DATA_DIR="${DXD7_DATA_DIR:-/data}"
+CORE_CONF="${DXD7_CORE_CONF:-/config/core.conf}"
 
 # Reads KEY=VALUE lines literally (no shell evaluation, no $ expansion).
 # One pair of matching outer quotes around a value is removed.
@@ -89,6 +91,40 @@ sync_endpoint() {
   fi
 }
 
+# Makes sure Deluge's download folders exist and are writable on every start.
+# Docker creates a missing bind-mounted /data as root, and binhex only fixes
+# ownership on its very first run, so on a fresh install Deluge could not use
+# /data/incomplete or /data/completed (the status bar showed "Error" for free
+# space). Only the folders themselves are changed, never files inside them.
+# Also covers any custom folder under /data that Deluge's saved settings use.
+ensure_data_dirs() {
+  [ -d "$DATA_DIR" ] || return 0
+  local uid="${PUID:-1000}" gid="${PGID:-1000}" d
+  local dirs=("$DATA_DIR/incomplete" "$DATA_DIR/completed")
+  if [ -f "$CORE_CONF" ]; then
+    while IFS= read -r d; do
+      dirs+=("$d")
+    done < <(sed -n -E 's/^[[:space:]]*"(download_location|move_completed_path)"[[:space:]]*:[[:space:]]*"([^"]*)".*/\2/p' "$CORE_CONF")
+  fi
+  chown "$uid:$gid" "$DATA_DIR" 2>/dev/null || true
+  for d in "${dirs[@]}"; do
+    case "$d" in
+      *..*) continue ;;
+      "$DATA_DIR"/?*) ;;
+      *) continue ;;
+    esac
+    if [ ! -d "$d" ]; then
+      if mkdir -p "$d" 2>/dev/null; then
+        chown "$uid:$gid" "$d" 2>/dev/null || true
+        chmod 775 "$d" 2>/dev/null || true
+        echo "[dxd7] created download folder $d"
+      else
+        echo "[dxd7] could not create download folder $d"
+      fi
+    fi
+  done
+}
+
 while true; do
   unset VPN_USER VPN_PASS SETUP_COMPLETE VPN_REMOTE_SERVER
   load_env
@@ -107,6 +143,7 @@ export VPN_ENABLED=yes
 
 patch_binhex
 sync_endpoint
+ensure_data_dirs
 echo "[dxd7] provider=${VPN_PROV:-?} client=${VPN_CLIENT:-?} server=${VPN_REMOTE_SERVER:-default}"
 echo "[dxd7] VPN settings found - starting binhex"
 exec /bin/bash init.sh
